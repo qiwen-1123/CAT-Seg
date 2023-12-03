@@ -1,3 +1,7 @@
+.vscode/
 **/__pycache__
 *.pth
 flagged/**
+datasets/coco/**
+datasets/coco-stuff/**
+output/
