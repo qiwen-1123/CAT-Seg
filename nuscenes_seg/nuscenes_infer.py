@@ -29,7 +29,7 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
-
+from rich.live import Live
 import gradio as gr
 import torch
 from matplotlib.backends.backend_agg import FigureCanvasAgg as fc
@@ -48,7 +48,7 @@ class nuscenes_infer:
             self.result_string = ",".join(data_list)
 
     def get_masks(self, preds, text):
-        mask_json_filepath = "./datasets/nuscenes_mask_dict.json"
+        mask_json_filepath = self.mask_json
 
         with open(mask_json_filepath, "r") as json_file:
             mask_dict = json.load(json_file)
@@ -83,22 +83,38 @@ class nuscenes_infer:
     def inference(
         self,
     ):
-        with Progress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
-            TimeElapsedColumn(),
-        ) as progress:
-            task = progress.add_task(
-                "[cyan]Processing Images",
-                total=len(os.listdir(self.input_path)),
+        num_img = 3
+
+        cams = [
+            "CAM_FRONT_LEFT",
+            "CAM_FRONT",
+            "CAM_FRONT_RIGHT",
+            "CAM_BACK_LEFT",
+            "CAM_BACK",
+            "CAM_BACK_RIGHT",
+        ]
+
+        for cam in cams:
+            i = 0
+            folder_path = os.path.join(self.input_path, "samples", cam)
+
+            progress_inner = Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeRemainingColumn(),
+                TimeElapsedColumn(),
+            )
+            task = progress_inner.add_task(
+                f"[cyan]Processing Images for {cam}",
+                total=num_img,
                 unit="image",
             )
-
-            for filename in os.listdir(self.input_path):
-                if filename.endswith((".jpg", ".jpeg", ".png")):
-                    image_path = os.path.join(self.input_path, filename)
+            progress_inner.start()
+            for filename in sorted(os.listdir(folder_path)):
+                if filename.endswith((".jpg", ".jpeg", ".png")) and i < num_img:
+                    i += 1
+                    image_path = os.path.join(folder_path, filename)
                     image = cv2.imread(image_path)
                     image_name = filename[: filename.rfind(".")]
 
@@ -110,19 +126,35 @@ class nuscenes_infer:
                     )
 
                     output_overlay_image_path = os.path.join(
-                        self.output_path, f"{image_name}_overlay.jpg"
+                        self.output_path,
+                        "overlay",
+                        cam,
+                        f"{image_name}_overlay.jpg",
                     )
                     output_mask_image_path = os.path.join(
-                        self.output_path, f"{image_name}_mask.jpg"
+                        self.output_path, "mask", cam, f"{image_name}_mask.jpg"
                     )
+                    output_raw_clip_path = os.path.join(
+                        self.output_path, "pth", cam, f"{image_name}_catseg.pth"
+                    )
+                    overlay_directory = os.path.dirname(output_overlay_image_path)
 
+                    if not os.path.exists(overlay_directory):
+                        os.makedirs(overlay_directory)
+
+                    mask_directory = os.path.dirname(output_mask_image_path)
+                    if not os.path.exists(mask_directory):
+                        os.makedirs(mask_directory)
+
+                    raw_clip_directory = os.path.dirname(output_raw_clip_path)
+                    if not os.path.exists(raw_clip_directory):
+                        os.makedirs(raw_clip_directory)
+
+                    torch.save(predictions["sem_seg"], output_raw_clip_path)
                     cv2.imwrite(output_overlay_image_path, outputs)
                     cv2.imwrite(output_mask_image_path, mask_image)
 
-                    progress.update(task, advance=1)
-
-                    # cv2.imshow("Image Visualization", ouputs)
-                    # key = cv2.waitKey(0)
-                    # if key != None:
-                    #     cv2.destroyAllWindows()
-                    #     exit()
+                    progress_inner.update(task, advance=1)
+                else:
+                    break
+            progress_inner.stop()

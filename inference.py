@@ -96,7 +96,7 @@ def get_parser():
     )
     parser.add_argument(
         "--seg_mask",
-        default="./datasets/nuscenes_mask_dict.json",
+        default="./datasets/generated_colors.json",
         help="The json file contains colors of masks",
     )
     parser.add_argument(

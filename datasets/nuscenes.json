@@ -1,7 +1,20 @@
 [
     "car",
+    "truck",
+    "trailer",
     "bus",
+    "construction_vehicle",
+    "bicycle",
+    "motorcycle",
+    "person",
+    "traffic_cone",
+    "barrier",
     "road",
+    "traffic light",
+    "street light",
+    "road sign",
+    "sidewalk",
     "building",
-    "sky"
+    "sky",
+    "tree"
 ]
