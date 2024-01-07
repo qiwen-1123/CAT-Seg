@@ -114,8 +114,7 @@ if __name__ == "__main__":
     global demo
 
     demo = VisualizationDemo(cfg)
-    image_path = "nuscenes.jpg"
-    image = cv2.imread(image_path)
+
     input_path = args.input
     output_path = args.output
     seg_class = args.seg_class

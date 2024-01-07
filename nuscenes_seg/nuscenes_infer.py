@@ -35,6 +35,13 @@ import torch
 from matplotlib.backends.backend_agg import FigureCanvasAgg as fc
 import json
 
+import skimage.data
+
+import selectivesearch
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import pickle
+
 
 class nuscenes_infer:
     def __init__(self, input_path, output_path, demo, class_json_path, mask_json):
@@ -44,8 +51,8 @@ class nuscenes_infer:
         self.demo = demo
 
         with open(class_json_path, "r") as file:
-            data_list = json.load(file)
-            self.result_string = ",".join(data_list)
+            self.class_list = json.load(file)
+            self.class_string = ",".join(self.class_list)
 
     def get_masks(self, preds, text):
         mask_json_filepath = self.mask_json
@@ -118,18 +125,20 @@ class nuscenes_infer:
                     image = cv2.imread(image_path)
                     image_name = filename[: filename.rfind(".")]
 
+                    ### get predictions from CAT-SEG
                     outputs, predictions = self.predict(
-                        image, self.result_string, model_type="CAT-Seg"
+                        image, self.class_string, model_type="CAT-Seg"
                     )
-                    mask_image = self.get_masks(
-                        predictions, self.result_string.split(",")
+                    mask_image = self.get_masks(predictions, self.class_list)
+
+                    ### selective search
+                    selected_resions = self.selective_search_inference(
+                        mask_image, predictions["sem_seg"]
                     )
 
+                    ### save inference results
                     output_overlay_image_path = os.path.join(
-                        self.output_path,
-                        "overlay",
-                        cam,
-                        f"{image_name}_overlay.jpg",
+                        self.output_path, "overlay", cam, f"{image_name}_overlay.jpg"
                     )
                     output_mask_image_path = os.path.join(
                         self.output_path, "mask", cam, f"{image_name}_mask.jpg"
@@ -137,8 +146,12 @@ class nuscenes_infer:
                     output_raw_clip_path = os.path.join(
                         self.output_path, "pth", cam, f"{image_name}_catseg.pth"
                     )
-                    overlay_directory = os.path.dirname(output_overlay_image_path)
 
+                    output_ss_bbox_path = os.path.join(
+                        self.output_path, "ss_bbox", cam, f"{image_name}_ss_box.pkl"
+                    )
+
+                    overlay_directory = os.path.dirname(output_overlay_image_path)
                     if not os.path.exists(overlay_directory):
                         os.makedirs(overlay_directory)
 
@@ -150,11 +163,46 @@ class nuscenes_infer:
                     if not os.path.exists(raw_clip_directory):
                         os.makedirs(raw_clip_directory)
 
+                    ss_bbox_directory = os.path.dirname(output_ss_bbox_path)
+                    if not os.path.exists(ss_bbox_directory):
+                        os.makedirs(ss_bbox_directory)
+
                     torch.save(predictions["sem_seg"], output_raw_clip_path)
                     cv2.imwrite(output_overlay_image_path, outputs)
                     cv2.imwrite(output_mask_image_path, mask_image)
+
+                    with open(output_ss_bbox_path, "wb") as file:
+                        pickle.dump(selected_resions, file)
 
                     progress_inner.update(task, advance=1)
                 else:
                     break
             progress_inner.stop()
+
+    def selective_search_inference(self, mask_img, raw_clip):
+        img_rgb = cv2.cvtColor(mask_img, cv2.COLOR_BGR2RGB)
+        img_lbl, regions = selectivesearch.selective_search(
+            img_rgb, scale=1000, sigma=0.8, min_size=100
+        )
+        selected_resions = regions[:50]
+
+        print(selected_resions)
+        # fig, ax = plt.subplots()
+        # ax.imshow(img_rgb)
+
+        # 添加选择性搜索的矩形框到图像上
+        for r in selected_resions:
+            x, y, w, h = r["rect"]
+            cropped_region = raw_clip[:, y : y + h, x : x + w]
+            sem_mean = torch.mean(cropped_region.float(), dim=(1, 2))
+            cls_index = torch.argmax(sem_mean)
+            r["labels"] = self.class_list[cls_index]
+
+            rect = mpatches.Rectangle(
+                (x, y), w, h, fill=False, edgecolor="red", linewidth=1
+            )
+            # ax.add_patch(rect)
+
+        # plt.show()
+
+        return selected_resions
